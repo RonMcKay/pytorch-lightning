@@ -18,20 +18,24 @@ Use the logger anywhere in you LightningModule as follows:
         self.logger.experiment.whatever_sacred_supports(...)
 """
 
+import argparse
 from logging import getLogger
+from typing import Dict, Optional, Union
 
 try:
-    import sacred
+    from sacred.experiment import Experiment
+    from sacred.observers import FileStorageObserver
 except ImportError:
-    raise ImportError('Missing sacred package.  Run `pip install sacred`')
+    raise ImportError("Missing sacred package.  Run `pip install sacred`")
 
-from pytorch_lightning.logging.base import LightningLoggerBase, rank_zero_only
+from pytorch_lightning.loggers.logger import Logger
+from pytorch_lightning.utilities.rank_zero import rank_zero_only
 
 logger = getLogger(__name__)
 
 
-class SacredLogger(LightningLoggerBase):
-    def __init__(self, sacred_experiment):
+class SacredLogger(Logger):
+    def __init__(self, sacred_experiment: Experiment):
         """Initialize a sacred logger.
 
         :param sacred.experiment.Experiment sacred_experiment: Required. Experiment object with desired observers
@@ -39,7 +43,7 @@ class SacredLogger(LightningLoggerBase):
         """
         super().__init__()
         self.sacred_experiment = sacred_experiment
-        self.experiment_name = sacred_experiment.path
+        self.experiment_name: str = sacred_experiment.path
         self._run_id = None
 
     @property
@@ -55,24 +59,29 @@ class SacredLogger(LightningLoggerBase):
         return self._run_id
 
     @rank_zero_only
-    def log_hyperparams(self, params):
+    def log_hyperparams(self, params: argparse.Namespace, *args, **kwargs):
         # probably not needed bc. it is dealt with by sacred
         pass
 
     @rank_zero_only
-    def log_metrics(self, metrics, step=None):
+    def log_metrics(self, metrics: Dict[str, float], step: Optional[int] = None):
         for k, v in metrics.items():
             if isinstance(v, str):
-                logger.warning(
-                    f"Discarding metric with string value {k}={v}"
-                )
+                logger.warning(f"Discarding metric with string value {k}={v}")
                 continue
             self.experiment.log_scalar(k, v, step)
 
     @property
-    def name(self):
+    def save_dir(self) -> Optional[str]:
+        for obs in self.experiment.observers:
+            if isinstance(obs, FileStorageObserver):
+                return obs.basedir
+        return None
+
+    @property
+    def name(self) -> str:
         return self.experiment_name
 
     @property
-    def version(self):
+    def version(self) -> Union[int, str]:
         return self.run_id
